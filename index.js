@@ -6,15 +6,21 @@ const PROXY_KEY = process.env.PROXY_KEY || '';
 
 // Route configs
 const ROUTES = {
-  '/zerion': { host: 'api.zerion.io', port: 443 },
-  '/ibkr': { host: 'localhost.web.quikstrike.net', port: 443 },
+  '/zerion': { 
+    host: 'api.zerion.io', 
+    rewrite: (path) => path 
+  },
+  '/ibkr': { 
+    host: 'ndcdyn.interactivebrokers.com', 
+    rewrite: (path) => '/AccountManagement/FlexWebService' + path 
+  },
 };
 
 const server = http.createServer((req, res) => {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Proxy-Key');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Proxy-Key, User-Agent');
   
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -44,7 +50,8 @@ const server = http.createServer((req, res) => {
   for (const [prefix, config] of Object.entries(ROUTES)) {
     if (req.url.startsWith(prefix)) {
       route = config;
-      targetPath = req.url.slice(prefix.length) || '/';
+      const remainder = req.url.slice(prefix.length) || '/';
+      targetPath = config.rewrite(remainder);
       break;
     }
   }
@@ -57,8 +64,9 @@ const server = http.createServer((req, res) => {
 
   // Forward headers
   const forwardHeaders = {
-    'Accept': req.headers['accept'] || 'application/json',
+    'Accept': req.headers['accept'] || '*/*',
     'Host': route.host,
+    'User-Agent': req.headers['user-agent'] || 'Demeter/1.0',
   };
   
   if (req.headers['authorization']) {
@@ -70,13 +78,13 @@ const server = http.createServer((req, res) => {
 
   const options = {
     hostname: route.host,
-    port: route.port,
+    port: 443,
     path: targetPath,
     method: req.method,
     headers: forwardHeaders,
   };
 
-  console.log(`Proxying: ${req.method} ${route.host}${targetPath}`);
+  console.log(`Proxying: ${req.method} https://${route.host}${targetPath}`);
 
   const proxyReq = https.request(options, (proxyRes) => {
     const responseHeaders = {
