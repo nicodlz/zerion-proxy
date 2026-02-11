@@ -2,8 +2,13 @@ const http = require('http');
 const https = require('https');
 
 const PORT = process.env.PORT || 3000;
-const ZERION_API = 'api.zerion.io';
 const PROXY_KEY = process.env.PROXY_KEY || '';
+
+// Route configs
+const ROUTES = {
+  '/zerion': { host: 'api.zerion.io', port: 443 },
+  '/ibkr': { host: 'localhost.web.quikstrike.net', port: 443 },
+};
 
 const server = http.createServer((req, res) => {
   // CORS headers
@@ -26,36 +31,52 @@ const server = http.createServer((req, res) => {
 
   // Auth check
   if (PROXY_KEY && req.headers['x-proxy-key'] !== PROXY_KEY) {
-    console.log(`Auth failed: expected ${PROXY_KEY}, got ${req.headers['x-proxy-key']}`);
+    console.log(`Auth failed: got ${req.headers['x-proxy-key']}`);
     res.writeHead(401);
     res.end('Unauthorized');
     return;
   }
 
-  // Proxy /zerion/* to api.zerion.io/*
+  // Find matching route
+  let route = null;
   let targetPath = req.url;
-  if (targetPath.startsWith('/zerion')) {
-    targetPath = targetPath.replace('/zerion', '');
+  
+  for (const [prefix, config] of Object.entries(ROUTES)) {
+    if (req.url.startsWith(prefix)) {
+      route = config;
+      targetPath = req.url.slice(prefix.length) || '/';
+      break;
+    }
   }
 
-  // Forward headers, including Authorization
+  if (!route) {
+    res.writeHead(404);
+    res.end('Unknown route');
+    return;
+  }
+
+  // Forward headers
   const forwardHeaders = {
     'Accept': req.headers['accept'] || 'application/json',
+    'Host': route.host,
   };
   
   if (req.headers['authorization']) {
     forwardHeaders['Authorization'] = req.headers['authorization'];
   }
+  if (req.headers['content-type']) {
+    forwardHeaders['Content-Type'] = req.headers['content-type'];
+  }
 
   const options = {
-    hostname: ZERION_API,
-    port: 443,
+    hostname: route.host,
+    port: route.port,
     path: targetPath,
     method: req.method,
     headers: forwardHeaders,
   };
 
-  console.log(`Proxying: ${req.method} ${targetPath}`);
+  console.log(`Proxying: ${req.method} ${route.host}${targetPath}`);
 
   const proxyReq = https.request(options, (proxyRes) => {
     const responseHeaders = {
@@ -76,6 +97,7 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Zerion proxy listening on port ${PORT}`);
+  console.log(`Proxy listening on port ${PORT}`);
+  console.log(`Routes: ${Object.keys(ROUTES).join(', ')}`);
   console.log(`Auth: ${PROXY_KEY ? 'enabled' : 'disabled'}`);
 });
