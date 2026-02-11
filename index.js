@@ -3,6 +3,7 @@ const https = require('https');
 
 const PORT = process.env.PORT || 3000;
 const ZERION_API = 'api.zerion.io';
+const PROXY_KEY = process.env.PROXY_KEY || '';
 
 const server = http.createServer((req, res) => {
   // CORS headers
@@ -16,10 +17,18 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Health check
+  // Health check (no auth required)
   if (req.url === '/health') {
     res.writeHead(200);
     res.end('ok');
+    return;
+  }
+
+  // Auth check
+  if (PROXY_KEY && req.headers['x-proxy-key'] !== PROXY_KEY) {
+    console.log(`Auth failed: expected ${PROXY_KEY}, got ${req.headers['x-proxy-key']}`);
+    res.writeHead(401);
+    res.end('Unauthorized');
     return;
   }
 
@@ -34,7 +43,6 @@ const server = http.createServer((req, res) => {
     'Accept': req.headers['accept'] || 'application/json',
   };
   
-  // Forward Authorization header if present
   if (req.headers['authorization']) {
     forwardHeaders['Authorization'] = req.headers['authorization'];
   }
@@ -50,7 +58,6 @@ const server = http.createServer((req, res) => {
   console.log(`Proxying: ${req.method} ${targetPath}`);
 
   const proxyReq = https.request(options, (proxyRes) => {
-    // Add CORS to response
     const responseHeaders = {
       ...proxyRes.headers,
       'Access-Control-Allow-Origin': '*',
@@ -70,4 +77,5 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Zerion proxy listening on port ${PORT}`);
+  console.log(`Auth: ${PROXY_KEY ? 'enabled' : 'disabled'}`);
 });
